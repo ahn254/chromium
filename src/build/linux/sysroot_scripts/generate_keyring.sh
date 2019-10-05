@@ -9,6 +9,12 @@ set -o errexit
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 KEYS=(
+    # Debian Ports Archive Automatic Signing Key (2023)
+    "B523E5F3FC4E5F2C"
+    # Debian Ports Archive Automatic Signing Key (2024)
+    "8D69674688B6CB36"
+    # Debian Security Archive Automatic Signing Key (12/bookworm)
+    "254CF3B5AEC0A8F0"
     # Debian Archive Automatic Signing Key (12/bookworm)
     "6ED0E7B82643E131"
     # Debian Stable Release Key (12/bookworm)
