@@ -533,10 +533,6 @@ bool GURL::IsAboutPath(base::StringPiece actual_path,
   return false;
 }
 
-void GURL::WriteIntoTrace(perfetto::TracedValue context) const {
-  std::move(context).WriteString(possibly_invalid_spec());
-}
-
 std::ostream& operator<<(std::ostream& out, const GURL& url) {
   return out << url.possibly_invalid_spec();
 }

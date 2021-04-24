@@ -390,10 +390,6 @@ absl::optional<Origin> Origin::Deserialize(const std::string& value) {
   return origin;
 }
 
-void Origin::WriteIntoTrace(perfetto::TracedValue context) const {
-  std::move(context).WriteString(GetDebugString());
-}
-
 size_t Origin::EstimateMemoryUsage() const {
   return base::trace_event::EstimateMemoryUsage(tuple_);
 }

@@ -319,8 +319,6 @@ class COMPONENT_EXPORT(URL) Origin {
                             uint64_t tokenLowBits);
 #endif  // BUILDFLAG(IS_ANDROID)
 
-  void WriteIntoTrace(perfetto::TracedValue context) const;
-
   // Estimates dynamic memory usage.
   // See base/trace_event/memory_usage_estimator.h for more info.
   size_t EstimateMemoryUsage() const;
