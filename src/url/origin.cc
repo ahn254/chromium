@@ -389,10 +389,6 @@ absl::optional<Origin> Origin::Deserialize(const std::string& value) {
   return origin;
 }
 
-void Origin::WriteIntoTrace(perfetto::TracedValue context) const {
-  std::move(context).WriteString(GetDebugString());
-}
-
 std::ostream& operator<<(std::ostream& out, const url::Origin& origin) {
   out << origin.GetDebugString();
   return out;

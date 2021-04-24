@@ -327,8 +327,6 @@ class COMPONENT_EXPORT(URL) Origin {
                             uint64_t tokenLowBits);
 #endif  // BUILDFLAG(IS_ANDROID)
 
-  void WriteIntoTrace(perfetto::TracedValue context) const;
-
  private:
   friend class blink::SecurityOrigin;
   friend class blink::SecurityOriginTest;
