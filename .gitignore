@@ -1,0 +1,9 @@
+.DS_Store
+src/chrome/android/profiles/afdo.prof
+src/chrome/build/pgo_profiles/
+src/gn/
+src/third_party/llvm-build/
+src/third_party/android_ndk/
+src/out/
+.vscode/
+*.pyc
