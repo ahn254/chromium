@@ -97,6 +97,7 @@ LibcCloseFuncPtr LoadCloseSymbol() {
 
 extern "C" {
 
+#if !defined(__MUSL__)
 NO_SANITIZE("cfi-icall")
 __attribute__((visibility("default"), noinline)) int close(int fd) {
   static LibcCloseFuncPtr libc_close = LoadCloseSymbol();
@@ -108,5 +109,6 @@ __attribute__((visibility("default"), noinline)) int close(int fd) {
   }
   return libc_close(fd);
 }
+#endif
 
 }  // extern "C"
