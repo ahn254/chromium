@@ -327,9 +327,6 @@ HacksAndPatchesCommon() {
   local strip=$3
   Banner "Misc Hacks & Patches"
 
-  # Remove an unnecessary dependency on qtchooser.
-  rm "${INSTALL_ROOT}/usr/lib/${arch}-${os}/qt-default/qtchooser/default.conf"
-
   # Unversion libdbus and libxkbcommon symbols.  This is required because
   # libdbus-1-3 and libxkbcommon0 switched from unversioned symbols to versioned
   # ones, and we must still support distros using the unversioned library.  This
