@@ -101,7 +101,7 @@ jobs:
     env:
       EXTRA_FLAGS: 'target_cpu="${{ matrix.arch }}"'
       BUNDLE: naiveproxy-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
-      CRONET_BUNDLE: cronet-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
+      # CRONET_BUNDLE: cronet-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v3
@@ -145,8 +145,8 @@ jobs:
       - run: ccache -z
       - run: ./build.sh
       - run: ccache -s
-      - run: CCACHE_DISABLE=1 ./go-build.sh
-        working-directory: src/out/Release/cronet
+      # - run: CCACHE_DISABLE=1 ./go-build.sh
+      #   working-directory: src/out/Release/cronet
       - run: ../tests/basic.sh out/Release/naive
       - name: Pack naiveproxy assets
         run: |
@@ -164,23 +164,23 @@ jobs:
         run: hub release edit -a ${{ env.BUNDLE }}.zip -m "" "${GITHUB_REF##*/}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Pack cronet assets
-        if: ${{ github.event_name == 'release' }}
-        run: |
-          mv out/Release/cronet ${{ env.CRONET_BUNDLE }}
-          tar cJf ${{ env.CRONET_BUNDLE }}.tar.xz ${{ env.CRONET_BUNDLE }}
-          openssl sha256 ${{ env.CRONET_BUNDLE }}.tar.xz >sha256sum.txt
-          echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
-      - uses: actions/upload-artifact@v2
-        if: ${{ github.event_name == 'release' }}
-        with:
-          name: ${{ env.CRONET_BUNDLE }}.tar.xz sha256 ${{ env.SHA256SUM }}
-          path: src/sha256sum.txt
-      - name: Upload cronet assets
-        if: ${{ github.event_name == 'release' }}
-        run: hub release edit -a ${{ env.CRONET_BUNDLE }}.tar.xz -m "" "${GITHUB_REF##*/}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Pack cronet assets
+      #   if: ${{ github.event_name == 'release' }}
+      #   run: |
+      #     mv out/Release/cronet ${{ env.CRONET_BUNDLE }}
+      #     tar cJf ${{ env.CRONET_BUNDLE }}.tar.xz ${{ env.CRONET_BUNDLE }}
+      #     openssl sha256 ${{ env.CRONET_BUNDLE }}.tar.xz >sha256sum.txt
+      #     echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
+      # - uses: actions/upload-artifact@v2
+      #   if: ${{ github.event_name == 'release' }}
+      #   with:
+      #     name: ${{ env.CRONET_BUNDLE }}.tar.xz sha256 ${{ env.SHA256SUM }}
+      #     path: src/sha256sum.txt
+      # - name: Upload cronet assets
+      #   if: ${{ github.event_name == 'release' }}
+      #   run: hub release edit -a ${{ env.CRONET_BUNDLE }}.tar.xz -m "" "${GITHUB_REF##*/}"
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   android:
     needs: cache-toolchains-posix
     runs-on: ubuntu-20.04
@@ -191,7 +191,7 @@ jobs:
     env:
       EXTRA_FLAGS: 'target_cpu="${{ matrix.arch }}" target_os="android"'
       BUNDLE: naiveproxy-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
-      CRONET_BUNDLE: cronet-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
+      # CRONET_BUNDLE: cronet-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v3
@@ -241,8 +241,8 @@ jobs:
       - run: ./build.sh
       - run: ccache -s
       - run: ./get-android-sys.sh
-      - run: CCACHE_DISABLE=1 ./go-build.sh
-        working-directory: src/out/Release/cronet
+      # - run: CCACHE_DISABLE=1 ./go-build.sh
+      #   working-directory: src/out/Release/cronet
       - run: ../tests/basic.sh out/Release/naive
       - name: Pack naiveproxy assets
         run: |
@@ -260,23 +260,23 @@ jobs:
         run: hub release edit -a ${{ env.BUNDLE }}.zip -m "" "${GITHUB_REF##*/}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Pack cronet assets
-        if: ${{ github.event_name == 'release' }}
-        run: |
-          mv out/Release/cronet ${{ env.CRONET_BUNDLE }}
-          tar cJf ${{ env.CRONET_BUNDLE }}.tar.xz ${{ env.CRONET_BUNDLE }}
-          openssl sha256 ${{ env.CRONET_BUNDLE }}.tar.xz >sha256sum.txt
-          echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
-      - uses: actions/upload-artifact@v2
-        if: ${{ github.event_name == 'release' }}
-        with:
-          name: ${{ env.CRONET_BUNDLE }}.tar.xz sha256 ${{ env.SHA256SUM }}
-          path: src/sha256sum.txt
-      - name: Upload cronet assets
-        if: ${{ github.event_name == 'release' }}
-        run: hub release edit -a ${{ env.CRONET_BUNDLE }}.tar.xz -m "" "${GITHUB_REF##*/}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Pack cronet assets
+      #   if: ${{ github.event_name == 'release' }}
+      #   run: |
+      #     mv out/Release/cronet ${{ env.CRONET_BUNDLE }}
+      #     tar cJf ${{ env.CRONET_BUNDLE }}.tar.xz ${{ env.CRONET_BUNDLE }}
+      #     openssl sha256 ${{ env.CRONET_BUNDLE }}.tar.xz >sha256sum.txt
+      #     echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
+      # - uses: actions/upload-artifact@v2
+      #   if: ${{ github.event_name == 'release' }}
+      #   with:
+      #     name: ${{ env.CRONET_BUNDLE }}.tar.xz sha256 ${{ env.SHA256SUM }}
+      #     path: src/sha256sum.txt
+      # - name: Upload cronet assets
+      #   if: ${{ github.event_name == 'release' }}
+      #   run: hub release edit -a ${{ env.CRONET_BUNDLE }}.tar.xz -m "" "${GITHUB_REF##*/}"
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   win:
     needs: cache-toolchains-win
     runs-on: windows-2019
@@ -287,7 +287,7 @@ jobs:
     env:
       EXTRA_FLAGS: 'target_cpu="${{ matrix.arch }}"'
       BUNDLE: naiveproxy-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
-      CRONET_BUNDLE: cronet-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
+      # CRONET_BUNDLE: cronet-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v3
@@ -326,8 +326,8 @@ jobs:
       - run: ~/.cargo/bin/sccache -z
       - run: ./build.sh
       - run: ~/.cargo/bin/sccache -s
-      - run: CCACHE_DISABLE=1 ./go-build.sh
-        working-directory: src/out/Release/cronet
+      # - run: CCACHE_DISABLE=1 ./go-build.sh
+      #   working-directory: src/out/Release/cronet
       - run: ../tests/basic.sh out/Release/naive
         # No real or emulated environment is available to test this.
         if: ${{ matrix.arch != 'arm64' }}
@@ -347,23 +347,23 @@ jobs:
         run: hub release edit -a ${{ env.BUNDLE }}.zip -m "" "${GITHUB_REF##*/}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Pack cronet assets
-        if: ${{ github.event_name == 'release' }}
-        run: |
-          mv out/Release/cronet ${{ env.CRONET_BUNDLE }}
-          tar cJf ${{ env.CRONET_BUNDLE }}.tar.xz ${{ env.CRONET_BUNDLE }}
-          openssl sha256 ${{ env.CRONET_BUNDLE }}.tar.xz >sha256sum.txt
-          echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
-      - uses: actions/upload-artifact@v2
-        if: ${{ github.event_name == 'release' }}
-        with:
-          name: ${{ env.CRONET_BUNDLE }}.tar.xz sha256 ${{ env.SHA256SUM }}
-          path: src/sha256sum.txt
-      - name: Upload cronet assets
-        if: ${{ github.event_name == 'release' }}
-        run: hub release edit -a ${{ env.CRONET_BUNDLE }}.tar.xz -m "" "${GITHUB_REF##*/}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Pack cronet assets
+      #   if: ${{ github.event_name == 'release' }}
+      #   run: |
+      #     mv out/Release/cronet ${{ env.CRONET_BUNDLE }}
+      #     tar cJf ${{ env.CRONET_BUNDLE }}.tar.xz ${{ env.CRONET_BUNDLE }}
+      #     openssl sha256 ${{ env.CRONET_BUNDLE }}.tar.xz >sha256sum.txt
+      #     echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
+      # - uses: actions/upload-artifact@v2
+      #   if: ${{ github.event_name == 'release' }}
+      #   with:
+      #     name: ${{ env.CRONET_BUNDLE }}.tar.xz sha256 ${{ env.SHA256SUM }}
+      #     path: src/sha256sum.txt
+      # - name: Upload cronet assets
+      #   if: ${{ github.event_name == 'release' }}
+      #   run: hub release edit -a ${{ env.CRONET_BUNDLE }}.tar.xz -m "" "${GITHUB_REF##*/}"
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   mac:
     needs: cache-toolchains-mac
     runs-on: macos-11
@@ -374,7 +374,7 @@ jobs:
     env:
       EXTRA_FLAGS: 'target_cpu="${{ matrix.arch }}"'
       BUNDLE: naiveproxy-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
-      CRONET_BUNDLE: cronet-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
+      # CRONET_BUNDLE: cronet-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v3
@@ -401,8 +401,8 @@ jobs:
       - run: ccache -z
       - run: ./build.sh
       - run: ccache -s
-      - run: CCACHE_DISABLE=1 ./go-build.sh
-        working-directory: src/out/Release/cronet
+      # - run: CCACHE_DISABLE=1 ./go-build.sh
+      #   working-directory: src/out/Release/cronet
       - run: ../tests/basic.sh out/Release/naive
         # No real or emulated environment is available to test this.
         if: ${{ matrix.arch != 'arm64' }}
@@ -422,23 +422,23 @@ jobs:
         run: hub release edit -a ${{ env.BUNDLE }}.zip -m "" "${GITHUB_REF##*/}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Pack cronet assets
-        if: ${{ github.event_name == 'release' }}
-        run: |
-          mv out/Release/cronet ${{ env.CRONET_BUNDLE }}
-          tar cJf ${{ env.CRONET_BUNDLE }}.tar.xz ${{ env.CRONET_BUNDLE }}
-          openssl sha256 ${{ env.CRONET_BUNDLE }}.tar.xz >sha256sum.txt
-          echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
-      - uses: actions/upload-artifact@v2
-        if: ${{ github.event_name == 'release' }}
-        with:
-          name: ${{ env.CRONET_BUNDLE }}.tar.xz sha256 ${{ env.SHA256SUM }}
-          path: src/sha256sum.txt
-      - name: Upload cronet assets
-        if: ${{ github.event_name == 'release' }}
-        run: hub release edit -a ${{ env.CRONET_BUNDLE }}.tar.xz -m "" "${GITHUB_REF##*/}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Pack cronet assets
+      #   if: ${{ github.event_name == 'release' }}
+      #   run: |
+      #     mv out/Release/cronet ${{ env.CRONET_BUNDLE }}
+      #     tar cJf ${{ env.CRONET_BUNDLE }}.tar.xz ${{ env.CRONET_BUNDLE }}
+      #     openssl sha256 ${{ env.CRONET_BUNDLE }}.tar.xz >sha256sum.txt
+      #     echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
+      # - uses: actions/upload-artifact@v2
+      #   if: ${{ github.event_name == 'release' }}
+      #   with:
+      #     name: ${{ env.CRONET_BUNDLE }}.tar.xz sha256 ${{ env.SHA256SUM }}
+      #     path: src/sha256sum.txt
+      # - name: Upload cronet assets
+      #   if: ${{ github.event_name == 'release' }}
+      #   run: hub release edit -a ${{ env.CRONET_BUNDLE }}.tar.xz -m "" "${GITHUB_REF##*/}"
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   ios:
     needs: cache-toolchains-mac
     runs-on: macos-11
@@ -489,7 +489,7 @@ jobs:
       EXTRA_FLAGS: target_cpu="${{ matrix.target_cpu }}" target_os="openwrt" use_allocator="none" use_allocator_shim=false use_partition_alloc=false ${{ matrix.extra }}
       OPENWRT_FLAGS: arch=${{ matrix.arch }} release=21.02.2 gcc_ver=8.4.0 ${{ matrix.openwrt }}
       BUNDLE: naiveproxy-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
-      CRONET_BUNDLE: cronet-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
+      # CRONET_BUNDLE: cronet-${{ github.event.release.tag_name }}-${{ github.job }}-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-go@v3
@@ -533,8 +533,8 @@ jobs:
       - run: ccache -z
       - run: ./build.sh
       - run: ccache -s
-      - run: CCACHE_DISABLE=1 ./go-build.sh
-        working-directory: src/out/Release/cronet
+      # - run: CCACHE_DISABLE=1 ./go-build.sh
+      #   working-directory: src/out/Release/cronet
         if: ${{ ! contains(matrix.extra, 'build_static=true') }}
       - run: ../tests/basic.sh out/Release/naive
       - name: Pack naiveproxy assets
@@ -553,20 +553,20 @@ jobs:
         run: hub release edit -a ${{ env.BUNDLE }}.zip -m "" "${GITHUB_REF##*/}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Pack cronet assets
-        if: ${{ github.event_name == 'release' && ! contains(matrix.extra, 'build_static=true') }}
-        run: |
-          mv out/Release/cronet ${{ env.CRONET_BUNDLE }}
-          tar cJf ${{ env.CRONET_BUNDLE }}.tar.xz ${{ env.CRONET_BUNDLE }}
-          openssl sha256 ${{ env.CRONET_BUNDLE }}.tar.xz >sha256sum.txt
-          echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
-      - uses: actions/upload-artifact@v2
-        if: ${{ github.event_name == 'release' && ! contains(matrix.extra, 'build_static=true') }}
-        with:
-          name: ${{ env.CRONET_BUNDLE }}.tar.xz sha256 ${{ env.SHA256SUM }}
-          path: src/sha256sum.txt
-      - name: Upload cronet assets
-        if: ${{ github.event_name == 'release' && ! contains(matrix.extra, 'build_static=true') }}
-        run: hub release edit -a ${{ env.CRONET_BUNDLE }}.tar.xz -m "" "${GITHUB_REF##*/}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Pack cronet assets
+      #   if: ${{ github.event_name == 'release' && ! contains(matrix.extra, 'build_static=true') }}
+      #   run: |
+      #     mv out/Release/cronet ${{ env.CRONET_BUNDLE }}
+      #     tar cJf ${{ env.CRONET_BUNDLE }}.tar.xz ${{ env.CRONET_BUNDLE }}
+      #     openssl sha256 ${{ env.CRONET_BUNDLE }}.tar.xz >sha256sum.txt
+      #     echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
+      # - uses: actions/upload-artifact@v2
+      #   if: ${{ github.event_name == 'release' && ! contains(matrix.extra, 'build_static=true') }}
+      #   with:
+      #     name: ${{ env.CRONET_BUNDLE }}.tar.xz sha256 ${{ env.SHA256SUM }}
+      #     path: src/sha256sum.txt
+      # - name: Upload cronet assets
+      #   if: ${{ github.event_name == 'release' && ! contains(matrix.extra, 'build_static=true') }}
+      #   run: hub release edit -a ${{ env.CRONET_BUNDLE }}.tar.xz -m "" "${GITHUB_REF##*/}"
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
