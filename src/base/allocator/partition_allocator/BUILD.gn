@@ -201,7 +201,7 @@ source_set("allocator_core") {
     "yield_processor.h",
   ]
 
-  if (use_starscan) {
+  if (true) {
     sources += [
       "starscan/logging.h",
       "starscan/metadata_allocator.cc",
@@ -724,7 +724,7 @@ buildflag_header("partition_alloc_buildflags") {
     "ENABLE_SHADOW_METADATA_FOR_64_BITS_POINTERS=$enable_shadow_metadata",
     "USE_FREELIST_POOL_OFFSETS=$use_freelist_pool_offsets",
 
-    "USE_STARSCAN=$use_starscan",
+    "USE_STARSCAN=true",
     "PCSCAN_STACK_SUPPORTED=$pcscan_stack_supported",
 
     "ENABLE_PKEYS=$enable_pkeys",
