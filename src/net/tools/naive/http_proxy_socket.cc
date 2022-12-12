@@ -8,17 +8,23 @@
 #include <cstring>
 #include <utility>
 
+#include "base/base64.h"
+#include "base/base64url.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
+#include "base/hash/sha1.h"
 #include "base/logging.h"
 #include "base/rand_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/sys_byteorder.h"
 #include "net/base/ip_address.h"
 #include "net/base/net_errors.h"
+#include "net/base/url_util.h"
 #include "net/http/http_request_headers.h"
 #include "net/log/net_log.h"
 #include "net/third_party/quiche/src/quiche/spdy/core/hpack/hpack_constants.h"
 #include "net/tools/naive/naive_proxy_delegate.h"
+#include "net/websockets/websocket_handshake_constants.h"
 
 namespace net {
 
@@ -31,6 +37,10 @@ constexpr int kResponseHeaderSize = sizeof(kResponseHeader) - 1;
 constexpr int kMinPaddingSize = 30;
 constexpr int kMaxPaddingSize = kMinPaddingSize + 32;
 }  // namespace
+
+namespace websockets {
+const char kWebSocketGuid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+}  // websockets
 
 HttpProxySocket::HttpProxySocket(
     std::unique_ptr<StreamSocket> transport_socket,
@@ -279,20 +289,23 @@ int HttpProxySocket::DoHeaderReadComplete(int result) {
   }
 
   // HttpProxyClientSocket uses CONNECT for all endpoints.
+  // GET is also supported.
+  bool is_http_1_0 = false;
   auto first_line_end = buffer_.find("\r\n");
   auto first_space = buffer_.find(' ');
   if (first_space == std::string::npos || first_space + 1 >= first_line_end) {
     return ERR_INVALID_ARGUMENT;
   }
-  if (buffer_.compare(0, first_space, "CONNECT") != 0) {
-    return ERR_INVALID_ARGUMENT;
-  }
+  if (buffer_.compare(0, first_space, "CONNECT") == 0) {
   auto second_space = buffer_.find(' ', first_space + 1);
   if (second_space == std::string::npos || second_space >= first_line_end) {
     return ERR_INVALID_ARGUMENT;
   }
   request_endpoint_ = HostPortPair::FromString(
       buffer_.substr(first_space + 1, second_space - (first_space + 1)));
+  } else {
+    is_http_1_0 = true;
+  }
 
   auto second_line = first_line_end + 2;
   HttpRequestHeaders headers;
@@ -307,6 +320,86 @@ int HttpProxySocket::DoHeaderReadComplete(int result) {
   } else {
     padding_detector_delegate_->SetClientPaddingSupport(
         PaddingSupport::kIncapable);
+  }
+
+  if (is_http_1_0) {
+    std::string upgrade_str;
+    std::string connection_str;
+    std::string host_str;
+    std::string key;
+    if (headers.GetHeader("Upgrade", &upgrade_str) &&
+        headers.GetHeader("Connection", &connection_str) &&
+        headers.GetHeader("sec-websocket-key", &key) &&
+        headers.GetHeader("X-Connect-Host", &host_str)) {
+      if (upgrade_str == "websocket" && connection_str == "Upgrade" && !host_str.empty()) {
+        std::string host;
+        int port;
+        base::Base64UrlDecode(host_str, base::Base64UrlDecodePolicy::IGNORE_PADDING, &host_str);
+        if (!ParseHostAndPort(host_str, &host, &port)) {
+          LOG(WARNING) << "Invalid Host: " << host_str;
+          return ERR_INVALID_ARGUMENT;
+        }
+        request_endpoint_.set_host(host);
+        request_endpoint_.set_port(port);
+        buffer_ = buffer_.substr(header_end + 4);
+
+        next_state_ = STATE_HEADER_WRITE_COMPLETE;
+
+        auto padding_header = "padding: " +
+                              std::string(base::RandInt(16, 32), '.') + "\r\n";
+        std::string accept_hash;
+        base::Base64Encode(base::SHA1HashString(key + websockets::kWebSocketGuid),
+                           &accept_hash);
+        auto handshake_str =  base::StringPrintf(
+                "HTTP/1.1 101 WebSocket Protocol Handshake\r\n"
+                "Upgrade: WebSocket\r\n"
+                "Connection: Upgrade\r\n"
+                "Sec-WebSocket-Accept: %s\r\n"
+                "%s"
+                "\r\n",
+                accept_hash.c_str(), padding_header.c_str());
+        header_write_size_ = handshake_str.size();
+        handshake_buf_ = new IOBuffer(handshake_str.size());
+        char* p = handshake_buf_->data();
+        std::memcpy(p, handshake_str.c_str(), header_write_size_);
+
+        return transport_->Write(handshake_buf_.get(), header_write_size_,
+                                 io_callback_, traffic_annotation_);
+      }
+    } else {
+      std::string host_str;
+      if (!headers.GetHeader(HttpRequestHeaders::kHost, &host_str)) {
+        return ERR_INVALID_ARGUMENT;
+      }
+      std::string host;
+      int port;
+      if (!ParseHostAndPort(host_str, &host, &port)) {
+        LOG(WARNING) << "Invalid Host: " << host_str;
+        return ERR_INVALID_ARGUMENT;
+      }
+      request_endpoint_.set_host(host);
+      if (port != -1)
+        request_endpoint_.set_port(port);
+      else
+        request_endpoint_.set_port(80);
+
+      // Regerate http header to make sure don't leak them to end servers
+      HttpRequestHeaders sanitized_headers = headers;
+      sanitized_headers.RemoveHeader(HttpRequestHeaders::kProxyConnection);
+      sanitized_headers.RemoveHeader(HttpRequestHeaders::kProxyAuthorization);
+      std::stringstream ss;
+      ss << buffer_.substr(0, first_line_end);
+      ss << "\r\n";
+      ss << sanitized_headers.ToString();
+      ss << "\r\n";
+      ss << "\r\n";
+      ss << buffer_.substr(header_end + 4);
+      buffer_ = ss.str();
+      // Skip padding write for raw http proxy
+      completed_handshake_ = true;
+      next_state_ = STATE_NONE;
+      return OK;
+    }
   }
 
   buffer_ = buffer_.substr(header_end + 4);

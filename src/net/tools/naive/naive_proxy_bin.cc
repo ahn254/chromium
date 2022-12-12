@@ -111,6 +111,7 @@ struct Params {
   logging::LoggingSettings log_settings;
   base::FilePath net_log_path;
   base::FilePath ssl_key_path;
+  std::string websocket_path;
 };
 
 std::unique_ptr<base::Value::Dict> GetConstants() {
@@ -297,6 +298,12 @@ bool ParseCommandLine(const CommandLine& cmdline, Params* params) {
     net::GetIdentityFromURL(url, &params->proxy_user, &params->proxy_pass);
   }
 
+  if (base::StartsWith(params->proxy_url,
+                       "wss://", base::CompareCase::SENSITIVE)) {
+    params->proxy_url.replace(0, 3, "https");
+    params->websocket_path = url.path();
+  }
+
   if (!cmdline.concurrency.empty()) {
     if (!base::StringToInt(cmdline.concurrency, &params->concurrency) ||
         params->concurrency < 1) {
@@ -419,7 +426,18 @@ std::unique_ptr<URLRequestContext> BuildURLRequestContext(
   ProxyConfig proxy_config;
   proxy_config.proxy_rules().ParseFromString(params->proxy_url);
   std::string proxy_url = params->proxy_url;
-  LOG(INFO) << "Proxying via " << proxy_url;
+  net::HttpNetworkSessionParams session_params;
+  if (!params->websocket_path.empty()) {
+    LOG(INFO) << "Proxying via faux-websocket " << params->proxy_url + params->websocket_path;
+    params->extra_headers.SetHeader("X-Websocket-Path", params->websocket_path);
+
+    // We don't support websocket proxy with HTTP/2,
+    // mainly because it seems CDNs don't support that anyways, and also it makes things easier.
+    session_params.enable_http2 = false;
+  } else {
+    LOG(INFO) << "Proxying via " << proxy_url;
+  }
+  builder.set_http_network_session_params(session_params);
   auto proxy_service =
       ConfiguredProxyResolutionService::CreateWithoutProxyResolver(
           std::make_unique<ProxyConfigServiceFixed>(
