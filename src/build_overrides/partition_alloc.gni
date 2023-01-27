@@ -28,7 +28,6 @@ import("//build/config/chromecast_build.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 if (is_ios) {
   import("//build/config/ios/ios_sdk.gni")
-  import("//ios/features.gni")
 }
 
 # Sanitizers replace the allocator, don't use our own.
@@ -46,13 +45,8 @@ _disable_partition_alloc_everywhere =
     (is_linux && is_component_build && is_debug) ||
     (!is_linux && is_component_build) || (is_win && is_debug)
 
-# - NaCl: No plans to support it.
-# - iOS: Depends on ios_partition_alloc_enabled.
-if (is_ios) {
-  _is_partition_alloc_everywhere_platform = ios_partition_alloc_enabled
-} else {
-  _is_partition_alloc_everywhere_platform = !is_nacl
-}
+# - iOS: not done yet.
+_is_partition_alloc_everywhere_platform = !is_nacl && !is_ios
 
 # Under Windows debug build, the allocator shim is not compatible with CRT.
 #     NaCl in particular does seem to link some binaries statically
