@@ -822,9 +822,9 @@ EVENT_TYPE(HTTP_PROXY_CONNECT_JOB_CONNECT)
 //   }
 EVENT_TYPE(SSL_CONNECT_JOB_RESTART_WITH_ECH_CONFIG_LIST)
 
-// This event is logged when the TransportConnectJob IPv6 fallback timer expires
-// and the IPv4 addresses are attempted.
-EVENT_TYPE(TRANSPORT_CONNECT_JOB_IPV6_FALLBACK)
+// This event is logged when the TransportConnectJob IPv4 fallback timer expires
+// and the IPv6 addresses are attempted.
+EVENT_TYPE(TRANSPORT_CONNECT_JOB_IPV4_FALLBACK)
 
 // This event is logged whenever the ConnectJob attempts a new TCP connection.
 // association. The ConnectJob may attempt multiple addresses in parallel, so
