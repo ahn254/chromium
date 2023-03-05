@@ -465,6 +465,9 @@ std::unique_ptr<URLRequestContext> BuildURLRequestContext(
   } else {
     LOG(INFO) << "Proxying via " << proxy_url;
   }
+    // enable 0-RTT for TLS 1.3
+  session_params.enable_early_data = true;
+
   builder.set_http_network_session_params(session_params);
   auto proxy_service =
       ConfiguredProxyResolutionService::CreateWithoutProxyResolver(

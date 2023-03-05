@@ -68,6 +68,7 @@ NaiveProxy::NaiveProxy(std::unique_ptr<ServerSocket> listen_socket,
       session_->params().ignore_certificate_errors;
   // TODO(https://crbug.com/964642): Also enable 0-RTT for TLS proxies.
   server_ssl_config_.early_data_enabled = session_->params().enable_early_data;
+  proxy_ssl_config_.early_data_enabled = session_->params().enable_early_data;
 
   for (int i = 0; i < concurrency_; i++) {
     network_anonymization_keys_.push_back(NetworkAnonymizationKey::CreateTransient());
