@@ -82,7 +82,7 @@ constexpr net::NetworkTrafficAnnotationTag kTrafficAnnotation =
     net::DefineNetworkTrafficAnnotation("naive", "");
 
 struct CommandLine {
-  std::string listen;
+  std::vector<std::string> listens;
   std::string proxy;
   std::string concurrency;
   std::string extra_headers;
@@ -94,12 +94,16 @@ struct CommandLine {
   base::FilePath ssl_key_log_file;
 };
 
-struct Params {
+struct ListenParams {
   net::ClientProtocol protocol;
   std::string listen_user;
   std::string listen_pass;
   std::string listen_addr;
   int listen_port;
+};
+
+struct Params {
+  std::vector<ListenParams> listens;
   int concurrency;
   net::HttpRequestHeaders extra_headers;
   std::string proxy_url;
@@ -128,7 +132,30 @@ std::unique_ptr<base::Value::Dict> GetConstants() {
   return std::make_unique<base::Value::Dict>(std::move(constants_dict));
 }
 
-void GetCommandLine(const base::CommandLine& proc, CommandLine* cmdline) {
+class MultipleListenCollector : public base::DuplicateSwitchHandler {
+ public:
+  void ResolveDuplicate(base::StringPiece key,
+                        base::CommandLine::StringPieceType new_value,
+                        base::CommandLine::StringType& out_value) override {
+    out_value = new_value;
+    if (key == "listen") {
+#if BUILDFLAG(IS_WIN)
+      all_values_.push_back(base::WideToUTF8(new_value));
+#else
+      all_values_.push_back(std::string(new_value));
+#endif
+    }
+  }
+
+  const std::vector<std::string>& GetAllValues() const { return all_values_; }
+
+ private:
+  std::vector<std::string> all_values_;
+};
+
+void GetCommandLine(const base::CommandLine& proc,
+                    CommandLine* cmdline,
+                    MultipleListenCollector& multiple_listens) {
   if (proc.HasSwitch("h") || proc.HasSwitch("help")) {
     std::cout << "Usage: naive { OPTIONS | config.json }\n"
                  "\n"
@@ -156,7 +183,7 @@ void GetCommandLine(const base::CommandLine& proc, CommandLine* cmdline) {
     exit(EXIT_SUCCESS);
   }
 
-  cmdline->listen = proc.GetSwitchValueASCII("listen");
+  cmdline->listens = multiple_listens.GetAllValues();
   cmdline->proxy = proc.GetSwitchValueASCII("proxy");
   cmdline->concurrency = proc.GetSwitchValueASCII("insecure-concurrency");
   cmdline->extra_headers = proc.GetSwitchValueASCII("extra-headers");
@@ -180,106 +207,131 @@ void GetCommandLineFromConfig(const base::FilePath& config_path,
               << error_message << std::endl;
     exit(EXIT_FAILURE);
   }
-  if (!value->is_dict()) {
+  base::Value::Dict* value_dict = value->GetIfDict();
+  if (value_dict == nullptr) {
     std::cerr << "Invalid config format" << std::endl;
     exit(EXIT_FAILURE);
   }
-  const auto* listen = value->GetDict().FindString("listen");
-  if (listen) {
-    cmdline->listen = *listen;
+  const std::string* listen = value_dict->FindString("listen");
+  if (listen != nullptr) {
+    cmdline->listens = {*listen};
+  } else {
+    const base::Value::List* listen_list = value_dict->FindList("listen");
+    if (listen_list != nullptr) {
+      for (const auto& listen_element : *listen_list) {
+        const std::string* listen_elemet_str = listen_element.GetIfString();
+        if (listen_elemet_str == nullptr) {
+          std::cerr << "Invalid listen element" << std::endl;
+          exit(EXIT_FAILURE);
+        }
+        cmdline->listens.push_back(*listen_elemet_str);
+      }
+    }
   }
-  const auto* proxy = value->GetDict().FindString("proxy");
+  const std::string* proxy = value_dict->FindString("proxy");
   if (proxy) {
     cmdline->proxy = *proxy;
   }
-  const auto* concurrency = value->GetDict().FindString("insecure-concurrency");
+  const std::string* concurrency = value_dict->FindString("insecure-concurrency");
   if (concurrency) {
     cmdline->concurrency = *concurrency;
   }
-  const auto* extra_headers = value->GetDict().FindString("extra-headers");
+  const std::string* extra_headers = value_dict->FindString("extra-headers");
   if (extra_headers) {
     cmdline->extra_headers = *extra_headers;
   }
-  const auto* host_resolver_rules = value->GetDict().FindString("host-resolver-rules");
+  const std::string* host_resolver_rules = value_dict->FindString("host-resolver-rules");
   if (host_resolver_rules) {
     cmdline->host_resolver_rules = *host_resolver_rules;
   }
-  const auto* resolver_range = value->GetDict().FindString("resolver-range");
+  const std::string* resolver_range = value_dict->FindString("resolver-range");
   if (resolver_range) {
     cmdline->resolver_range = *resolver_range;
   }
   cmdline->no_log = true;
-  const auto* log = value->GetDict().FindString("log");
+  const std::string* log = value_dict->FindString("log");
   if (log) {
     cmdline->no_log = false;
     cmdline->log = base::FilePath::FromUTF8Unsafe(*log);
   }
-  const auto* log_net_log = value->GetDict().FindString("log-net-log");
+  const std::string* log_net_log = value_dict->FindString("log-net-log");
   if (log_net_log) {
     cmdline->log_net_log = base::FilePath::FromUTF8Unsafe(*log_net_log);
   }
-  const auto* ssl_key_log_file = value->GetDict().FindString("ssl-key-log-file");
+  const std::string* ssl_key_log_file = value_dict->FindString("ssl-key-log-file");
   if (ssl_key_log_file) {
     cmdline->ssl_key_log_file =
         base::FilePath::FromUTF8Unsafe(*ssl_key_log_file);
   }
 }
 
-std::string GetProxyFromURL(const GURL& url) {
-  std::string str = url.GetWithEmptyPath().spec();
-  if (str.size() && str.back() == '/') {
-    str.pop_back();
+bool ParseListenParams(const std::string& listen_str,
+                       ListenParams& listen_params) {
+  GURL url(listen_str);
+  if (url.scheme() == "socks") {
+    listen_params.protocol = net::ClientProtocol::kSocks5;
+  } else if (url.scheme() == "http") {
+    listen_params.protocol = net::ClientProtocol::kHttp;
+  } else if (url.scheme() == "redir") {
+#if BUILDFLAG(IS_LINUX)
+    listen_params.protocol = net::ClientProtocol::kRedir;
+#else
+    std::cerr << "Redir protocol only supports Linux." << std::endl;
+    return false;
+#endif
+  } else {
+    std::cerr << "Invalid scheme in --listen" << std::endl;
+    return false;
   }
-  return str;
+  if (!url.username().empty()) {
+    listen_params.listen_user =
+        base::UnescapeBinaryURLComponent(url.username());
+  }
+  if (!url.password().empty()) {
+    listen_params.listen_pass =
+        base::UnescapeBinaryURLComponent(url.password());
+  }
+  if (!url.host().empty()) {
+    listen_params.listen_addr = url.HostNoBrackets();
+  } else {
+    listen_params.listen_addr = "0.0.0.0";
+  }
+  int port = url.EffectiveIntPort();
+  if (port == url::PORT_INVALID) {
+    std::cerr << "Invalid port in --listen" << std::endl;
+    return false;
+  } else if (port == url::PORT_UNSPECIFIED) {
+    port = 1080;
+  }
+  listen_params.listen_port = port;
+  return true;
 }
 
 bool ParseCommandLine(const CommandLine& cmdline, Params* params) {
-  params->protocol = net::ClientProtocol::kSocks5;
-  params->listen_addr = "0.0.0.0";
-  params->listen_port = 1080;
   url::AddStandardScheme("socks",
                          url::SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION);
   url::AddStandardScheme("redir", url::SCHEME_WITH_HOST_AND_PORT);
-  if (!cmdline.listen.empty()) {
-    GURL url(cmdline.listen);
-    if (url.scheme() == "socks") {
-      params->protocol = net::ClientProtocol::kSocks5;
-      params->listen_port = 1080;
-    } else if (url.scheme() == "http") {
-      params->protocol = net::ClientProtocol::kHttp;
-      params->listen_port = 8080;
-    } else if (url.scheme() == "redir") {
-#if defined(OS_LINUX)
-      params->protocol = net::ClientProtocol::kRedir;
-      params->listen_port = 1080;
-#else
-      std::cerr << "Redir protocol only supports Linux." << std::endl;
-      return false;
-#endif
-    } else {
-      std::cerr << "Invalid scheme in --listen" << std::endl;
-      return false;
-    }
-    if (!url.username().empty()) {
-      params->listen_user = base::UnescapeBinaryURLComponent(url.username());
-    }
-    if (!url.password().empty()) {
-      params->listen_pass = base::UnescapeBinaryURLComponent(url.password());
-    }
-    if (!url.host().empty()) {
-      params->listen_addr = url.HostNoBrackets();
-    }
-    if (!url.port().empty()) {
-      if (!base::StringToInt(url.port(), &params->listen_port)) {
-        std::cerr << "Invalid port in --listen" << std::endl;
+
+  bool any_redir_protocol = false;
+  if (!cmdline.listens.empty()) {
+    for (const std::string& listen : cmdline.listens) {
+      ListenParams listen_params;
+      if (!ParseListenParams(listen, listen_params)) {
+        std::cerr << "Invalid listen: " << listen << std::endl;
         return false;
       }
-      if (params->listen_port <= 0 ||
-          params->listen_port > std::numeric_limits<uint16_t>::max()) {
-        std::cerr << "Invalid port in --listen" << std::endl;
-        return false;
+      if (listen_params.protocol == net::ClientProtocol::kRedir) {
+        any_redir_protocol = true;
       }
+      params->listens.push_back(listen_params);
     }
+  } else {
+    ListenParams default_listen = {
+        .protocol = net::ClientProtocol::kSocks5,
+        .listen_addr = "0.0.0.0",
+        .listen_port = 1080,
+    };
+    params->listens = {default_listen};
   }
 
   params->proxy_url = "direct://";
@@ -289,11 +341,13 @@ bool ParseCommandLine(const CommandLine& cmdline, Params* params) {
   remove_auth.ClearPassword();
   GURL url_no_auth = url.ReplaceComponents(remove_auth);
   if (!cmdline.proxy.empty()) {
-    if (!url.is_valid()) {
+    params->proxy_url = url_no_auth.GetWithEmptyPath().spec();
+    if (params->proxy_url.empty()) {
       std::cerr << "Invalid proxy URL" << std::endl;
       return false;
+    } else if (params->proxy_url.back() == '/') {
+      params->proxy_url.pop_back();
     }
-    params->proxy_url = GetProxyFromURL(url_no_auth);
     net::GetIdentityFromURL(url, &params->proxy_user, &params->proxy_pass);
   }
 
@@ -311,7 +365,7 @@ bool ParseCommandLine(const CommandLine& cmdline, Params* params) {
 
   params->host_resolver_rules = cmdline.host_resolver_rules;
 
-  if (params->protocol == net::ClientProtocol::kRedir) {
+  if (any_redir_protocol) {
     std::string range = "100.64.0.0/10";
     if (!cmdline.resolver_range.empty())
       range = cmdline.resolver_range;
@@ -436,8 +490,9 @@ std::unique_ptr<URLRequestContext> BuildURLRequestContext(
   builder.SetCertVerifier(
       CertVerifier::CreateDefault(std::move(cert_net_fetcher)));
 
-  builder.set_proxy_delegate(
-      std::make_unique<NaiveProxyDelegate>(params->extra_headers));
+  builder.set_proxy_delegate(std::make_unique<NaiveProxyDelegate>(
+      params->extra_headers,
+      std::vector<PaddingType>{PaddingType::kVariant1, PaddingType::kNone}));
 
   auto context = builder.Build();
 
@@ -480,6 +535,9 @@ int main(int argc, char* argv[]) {
   base::mac::ScopedNSAutoreleasePool pool;
 #endif
 
+  auto multiple_listens = std::make_unique<MultipleListenCollector>();
+  MultipleListenCollector& multiple_listens_ref = *multiple_listens;
+  base::CommandLine::SetDuplicateSwitchHandler(std::move(multiple_listens));
   base::CommandLine::Init(argc, argv);
 
   CommandLine cmdline;
@@ -488,7 +546,7 @@ int main(int argc, char* argv[]) {
   const auto& args = proc.GetArgs();
   if (args.empty()) {
     if (proc.argv().size() >= 2) {
-      GetCommandLine(proc, &cmdline);
+      GetCommandLine(proc, &cmdline, multiple_listens_ref);
     } else {
       auto path = base::FilePath::FromUTF8Unsafe("config.json");
       GetCommandLineFromConfig(path, &cmdline);
@@ -551,46 +609,56 @@ int main(int argc, char* argv[]) {
       net::BuildURLRequestContext(&params, std::move(cert_net_fetcher), net_log);
   auto* session = context->http_transaction_factory()->GetSession();
 
-  auto listen_socket =
-      std::make_unique<net::TCPServerSocket>(net_log, net::NetLogSource());
-
-  int result = listen_socket->ListenWithAddressAndPort(
-      params.listen_addr, params.listen_port, kListenBackLog);
-  if (result != net::OK) {
-    LOG(ERROR) << "Failed to listen: " << result;
-    return EXIT_FAILURE;
-  }
-  LOG(INFO) << "Listening on " << params.listen_addr << ":"
-            << params.listen_port;
-
+  std::vector<std::unique_ptr<net::NaiveProxy>> naive_proxies;
   std::unique_ptr<net::RedirectResolver> resolver;
-  if (params.protocol == net::ClientProtocol::kRedir) {
-    auto resolver_socket =
-        std::make_unique<net::UDPServerSocket>(net_log, net::NetLogSource());
-    resolver_socket->AllowAddressReuse();
-    net::IPAddress listen_addr;
-    if (!listen_addr.AssignFromIPLiteral(params.listen_addr)) {
-      LOG(ERROR) << "Failed to open resolver: " << net::ERR_ADDRESS_INVALID;
-      return EXIT_FAILURE;
-    }
 
-    result = resolver_socket->Listen(
-        net::IPEndPoint(listen_addr, params.listen_port));
+  for (const ListenParams& listen_params : params.listens) {
+    auto listen_socket =
+        std::make_unique<net::TCPServerSocket>(net_log, net::NetLogSource());
+
+    int result = listen_socket->ListenWithAddressAndPort(
+        listen_params.listen_addr, listen_params.listen_port, kListenBackLog);
     if (result != net::OK) {
-      LOG(ERROR) << "Failed to open resolver: " << result;
+      LOG(ERROR) << "Failed to listen on "
+                 << net::ToString(listen_params.protocol) << "://"
+                 << listen_params.listen_addr << " "
+                 << listen_params.listen_port << ": "
+                 << net::ErrorToShortString(result);
       return EXIT_FAILURE;
     }
+    LOG(INFO) << "Listening on " << net::ToString(listen_params.protocol)
+              << "://" << listen_params.listen_addr << ":"
+              << listen_params.listen_port;
 
-    resolver = std::make_unique<net::RedirectResolver>(
-        std::move(resolver_socket), params.resolver_range,
-        params.resolver_prefix);
+    if (resolver == nullptr &&
+        listen_params.protocol == net::ClientProtocol::kRedir) {
+      auto resolver_socket =
+          std::make_unique<net::UDPServerSocket>(net_log, net::NetLogSource());
+      resolver_socket->AllowAddressReuse();
+      net::IPAddress listen_addr;
+      if (!listen_addr.AssignFromIPLiteral(listen_params.listen_addr)) {
+        LOG(ERROR) << "Failed to open resolver: " << listen_params.listen_addr;
+        return EXIT_FAILURE;
+      }
+
+      result = resolver_socket->Listen(
+          net::IPEndPoint(listen_addr, listen_params.listen_port));
+      if (result != net::OK) {
+        LOG(ERROR) << "Failed to open resolver: "
+                   << net::ErrorToShortString(result);
+        return EXIT_FAILURE;
+      }
+
+      resolver = std::make_unique<net::RedirectResolver>(
+          std::move(resolver_socket), params.resolver_range,
+          params.resolver_prefix);
+    }
+
+    naive_proxies.emplace_back(std::make_unique<net::NaiveProxy>(std::move(listen_socket), listen_params.protocol,
+                                                                 listen_params.listen_user, listen_params.listen_pass,
+                                                                 params.concurrency, resolver.get(), session, kTrafficAnnotation,
+                                                                 std::vector<net::PaddingType>{net::PaddingType::kVariant1, net::PaddingType::kNone}));
   }
-
-  net::NaiveProxy naive_proxy(std::move(listen_socket), params.protocol,
-                              params.listen_user, params.listen_pass,
-                              params.concurrency, resolver.get(), session,
-                              kTrafficAnnotation);
-
   base::RunLoop().Run();
 
   return EXIT_SUCCESS;

@@ -8,6 +8,7 @@
 
 #include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
@@ -38,7 +39,8 @@ class NaiveProxy {
              int concurrency,
              RedirectResolver* resolver,
              HttpNetworkSession* session,
-             const NetworkTrafficAnnotationTag& traffic_annotation);
+             const NetworkTrafficAnnotationTag& traffic_annotation,
+             const std::vector<PaddingType>& supported_padding_types);
   ~NaiveProxy();
   NaiveProxy(const NaiveProxy&) = delete;
   NaiveProxy& operator=(const NaiveProxy&) = delete;
@@ -81,6 +83,8 @@ class NaiveProxy {
   std::map<unsigned int, std::unique_ptr<NaiveConnection>> connection_by_id_;
 
   const NetworkTrafficAnnotationTag& traffic_annotation_;
+
+  std::vector<PaddingType> supported_padding_types_;
 
   base::WeakPtrFactory<NaiveProxy> weak_ptr_factory_{this};
 };
