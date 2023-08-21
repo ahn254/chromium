@@ -59,6 +59,7 @@ case "$ARCH" in
     WITH_GN=windows
     case "$target_cpu" in
       x64) WITH_PGO=win64;;
+      arm64) WITH_PGO=win-arm64;;
       *) WITH_PGO=win32;;
     esac
   ;;

@@ -66,7 +66,13 @@ jobs:
         with:
           path: src/chrome/build/pgo_profiles/chrome-win64-*
           key: pgo-win64-${{ hashFiles('CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
+      - name: Cache PGO (arm64)
+        uses: actions/cache@v3
+        with:
+          path: src/chrome/build/pgo_profiles/chrome-win-arm64-*
+          key: pgo-win-arm64-${{ hashFiles('CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
       - run: EXTRA_FLAGS='target_cpu="x64"' ./get-clang.sh
+      - run: EXTRA_FLAGS='target_cpu="arm64"' ./get-clang.sh
       - run: |
           if [ ! -f ~/bin/ninja.exe ]; then
             curl -LO https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-win.zip
@@ -306,6 +312,12 @@ jobs:
         with:
           path: src/chrome/build/pgo_profiles/chrome-win64-*
           key: pgo-win64-${{ hashFiles('CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
+      - name: Cache PGO (arm64)
+        if: ${{ matrix.arch == 'arm64' }}
+        uses: actions/cache@v3
+        with:
+          path: src/chrome/build/pgo_profiles/chrome-win-arm64-*
+          key: pgo-win-arm64-${{ hashFiles('CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
       - id: ccache-timestamp
         run: echo "::set-output name=date::$(date +%s)"
       - name: Cache ccache files
