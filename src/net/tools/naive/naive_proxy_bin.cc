@@ -14,11 +14,13 @@
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/json/json_file_value_serializer.h"
+#include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
 #include "base/strings/escape.h"
+#include "base/strings/string_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -132,6 +134,27 @@ std::unique_ptr<base::Value::Dict> GetConstants() {
   return std::make_unique<base::Value::Dict>(std::move(constants_dict));
 }
 
+class StdinReader {
+ public:
+  StdinReader() = default;
+
+  // Read data from stdin and store it in the provided string.
+  bool ReadFromStdin(std::string& output_str) {
+    char buffer[1024];  // Adjust buffer size as needed.
+    while (true) {
+      std::cin.read(buffer, sizeof(buffer));
+      std::streamsize bytes_read = std::cin.gcount();
+      if (bytes_read > 0) {
+        output_str.append(buffer, bytes_read);
+      }
+      if (std::cin.eof() || std::cin.bad() || std::cin.fail()) {
+        break;
+      }
+    }
+    return !output_str.empty();
+  }
+};
+
 class MultipleListenCollector : public base::DuplicateSwitchHandler {
  public:
   void ResolveDuplicate(base::StringPiece key,
@@ -196,22 +219,8 @@ void GetCommandLine(const base::CommandLine& proc,
   cmdline->ssl_key_log_file = proc.GetSwitchValuePath("ssl-key-log-file");
 }
 
-void GetCommandLineFromConfig(const base::FilePath& config_path,
-                              CommandLine* cmdline) {
-  JSONFileValueDeserializer reader(config_path);
-  int error_code;
-  std::string error_message;
-  auto value = reader.Deserialize(&error_code, &error_message);
-  if (value == nullptr) {
-    std::cerr << "Error reading " << config_path << ": (" << error_code << ") "
-              << error_message << std::endl;
-    exit(EXIT_FAILURE);
-  }
-  base::Value::Dict* value_dict = value->GetIfDict();
-  if (value_dict == nullptr) {
-    std::cerr << "Invalid config format" << std::endl;
-    exit(EXIT_FAILURE);
-  }
+void ConfigureCommandLineFromValueDict(const base::Value::Dict* value_dict,
+                                       CommandLine* cmdline) {
   const std::string* listen = value_dict->FindString("listen");
   if (listen != nullptr) {
     cmdline->listens = {*listen};
@@ -262,6 +271,41 @@ void GetCommandLineFromConfig(const base::FilePath& config_path,
   if (ssl_key_log_file) {
     cmdline->ssl_key_log_file =
         base::FilePath::FromUTF8Unsafe(*ssl_key_log_file);
+  }
+}
+void GetCommandLineFromConfig(const base::FilePath& config_path,
+                              CommandLine* cmdline) {
+  JSONFileValueDeserializer reader(config_path);
+  int error_code;
+  std::string error_message;
+  auto value = reader.Deserialize(&error_code, &error_message);
+  if (value == nullptr) {
+    std::cerr << "Error reading " << config_path << ": (" << error_code << ") "
+              << error_message << std::endl;
+    exit(EXIT_FAILURE);
+  }
+  base::Value::Dict* value_dict = value->GetIfDict();
+  if (value_dict != nullptr) {
+    ConfigureCommandLineFromValueDict(value_dict, cmdline);
+  } else {
+    std::cerr << "Invalid config format" << std::endl;
+    exit(EXIT_FAILURE);
+  }
+}
+
+void GetCommandLineFromStdin(const std::string& config_str, CommandLine* cmdline) {
+  auto value = base::JSONReader::Read(config_str,
+                                      base::JSONParserOptions::JSON_PARSE_RFC);
+  if (!value.has_value()) {
+    std::cerr << "Error reading stdin: " << std::endl;
+    exit(EXIT_FAILURE);
+  }
+  base::Value::Dict* value_dict = value->GetIfDict();
+  if (value_dict != nullptr) {
+    ConfigureCommandLineFromValueDict(value_dict, cmdline);
+  } else {
+    std::cerr << "Invalid config format" << std::endl;
+    exit(EXIT_FAILURE);
   }
 }
 
@@ -522,6 +566,35 @@ std::unique_ptr<URLRequestContext> BuildURLRequestContext(
 }  // namespace
 }  // namespace net
 
+
+namespace base {
+
+class ExtendedCommandLine : public CommandLine {
+ public:
+  using CommandLine::CommandLine;  // Inherit constructors
+
+  ExtendedCommandLine(const CommandLine& base_command_line)
+      : CommandLine(base_command_line) {}
+
+  std::vector<std::string> GetArgsAsUTF8() {
+    const CommandLine::StringVector original_args = CommandLine::GetArgs();
+
+#if defined(OS_WIN)
+    std::vector<std::string> args;
+    args.reserve(original_args.size());
+    for (const auto& arg : original_args) {
+      args.push_back(base::WideToUTF8(arg));  // Convert to std::string in Windows environment
+    }
+    return args;
+#else
+    // Directly return the original arguments in other environments
+    return original_args;
+#endif
+  }
+};
+
+}  // namespace base
+
 int main(int argc, char* argv[]) {
   url::AddStandardScheme("quic",
                          url::SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION);
@@ -543,7 +616,8 @@ int main(int argc, char* argv[]) {
   CommandLine cmdline;
   Params params;
   const auto& proc = *base::CommandLine::ForCurrentProcess();
-  const auto& args = proc.GetArgs();
+  const std::vector<std::string>& args =
+      base::ExtendedCommandLine(proc).GetArgsAsUTF8();
   if (args.empty()) {
     if (proc.argv().size() >= 2) {
       GetCommandLine(proc, &cmdline, multiple_listens_ref);
@@ -551,8 +625,24 @@ int main(int argc, char* argv[]) {
       auto path = base::FilePath::FromUTF8Unsafe("config.json");
       GetCommandLineFromConfig(path, &cmdline);
     }
+  } else if (base::StartsWith(base::StringPiece(args[0]),
+                              base::StringPiece("stdin:"), base::CompareCase::SENSITIVE)) {
+    StdinReader reader;
+    std::string input_data;
+
+    if (reader.ReadFromStdin(input_data)) {
+      // Process input_data as needed.
+      std::cout << "Received input: " << input_data << std::endl;
+    } else {
+      std::cerr << "Error reading from stdin." << std::endl;
+    }
+    GetCommandLineFromStdin(input_data, &cmdline);
   } else {
+#if defined(OS_WIN)
+    base::FilePath path(base::UTF8ToWide(args[0]));
+#else
     base::FilePath path(args[0]);
+#endif
     GetCommandLineFromConfig(path, &cmdline);
   }
   if (!ParseCommandLine(cmdline, &params)) {
