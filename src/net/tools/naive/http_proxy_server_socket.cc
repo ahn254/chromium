@@ -10,8 +10,11 @@
 #include <utility>
 #include <vector>
 
+#include "base/base64.h"
+#include "base/base64url.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
+#include "base/hash/sha1.h"
 #include "base/logging.h"
 #include "base/rand_util.h"
 #include "base/strings/string_split.h"
@@ -37,6 +40,20 @@ constexpr int kResponseHeaderSize = sizeof(kResponseHeader) - 1;
 constexpr int kMinPaddingSize = 30;
 constexpr int kMaxPaddingSize = kMinPaddingSize + 32;
 }  // namespace
+
+namespace WebSocket {
+const char kUpgrade[] = "Upgrade";
+const char kSecWebSocketKey[] = "Sec-WebSocket-Key";
+const char kSecWebSocketAccept[] = "Sec-WebSocket-Accept";
+const char kWebSocketGuid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+}  // namespace websocket
+
+std::string ComputeSecWebSocketAccept(const std::string& key) {
+  std::string accept;
+  std::string hash = base::SHA1HashString(key + WebSocket::kWebSocketGuid);
+  base::Base64Encode(hash, &accept);
+  return accept;
+}
 
 HttpProxyServerSocket::HttpProxyServerSocket(
     std::unique_ptr<StreamSocket> transport_socket,
@@ -335,6 +352,20 @@ int HttpProxyServerSocket::DoHeaderReadComplete(int result) {
     return ERR_INVALID_ARGUMENT;
   }
 
+  size_t second_line = first_line_end + 2;
+  HttpRequestHeaders headers;
+  std::string headers_str;
+  if (second_line < header_end) {
+    headers_str = buffer_.substr(second_line, header_end - second_line);
+    headers.AddHeadersFromString(headers_str);
+  }
+
+  std::optional<PaddingType> padding_type = ParsePaddingHeaders(headers);
+  if (!padding_type.has_value()) {
+    return ERR_INVALID_ARGUMENT;
+  }
+  padding_detector_delegate_->SetClientPaddingType(*padding_type);
+
   std::string method = buffer_.substr(0, first_space);
   std::string uri =
       buffer_.substr(first_space + 1, second_space - (first_space + 1));
@@ -342,17 +373,59 @@ int HttpProxyServerSocket::DoHeaderReadComplete(int result) {
       buffer_.substr(second_space + 1, first_line_end - (second_space + 1));
   if (method == HttpRequestHeaders::kConnectMethod) {
     request_endpoint_ = HostPortPair::FromString(uri);
+  } else if (method == HttpRequestHeaders::kGetMethod) {
+    std::string upgrade_header;
+    std::string connection_header;
+    std::string x_connect_host_header;
+    std::string handshake_challenge_header;
+
+    if (headers.HasHeader(WebSocket::kUpgrade) && headers.HasHeader(HttpRequestHeaders::kConnection) &&
+        headers.GetHeader(WebSocket::kUpgrade, &upgrade_header) &&
+        headers.GetHeader(HttpRequestHeaders::kConnection, &connection_header) &&
+        headers.GetHeader(WebSocket::kSecWebSocketKey, &handshake_challenge_header) &&
+        upgrade_header == "websocket" && connection_header.find("Upgrade") != std::string::npos &&
+        headers.GetHeader("X-Connect-Host", &x_connect_host_header)) {
+
+      std::string host;
+      int port;
+
+      base::Base64UrlDecode(x_connect_host_header,
+                            base::Base64UrlDecodePolicy::IGNORE_PADDING, &x_connect_host_header);
+      if (!ParseHostAndPort(x_connect_host_header, &host, &port)) {
+        LOG(WARNING) << "Invalid Host: " << x_connect_host_header;
+        return ERR_INVALID_ARGUMENT;
+      }
+
+      request_endpoint_.set_host(host);
+      request_endpoint_.set_port(port);
+
+      auto padding_header = "padding: " +
+                            std::string(base::RandInt(16, 32), '.') + "\r\n";
+      auto handshake_challenge_response =
+          ComputeSecWebSocketAccept(handshake_challenge_header);
+
+      std::ostringstream ss;
+      ss << "HTTP/1.1 101 WebSocket Protocol Handshake\r\n";
+      ss << "Upgrade: WebSocket\r\n";
+      ss << "Connection: Upgrade\r\n";
+      ss << "Sec-WebSocket-Accept: " << handshake_challenge_response << "\r\n";
+      ss << padding_header;
+      ss << "\r\n";
+      std::string handshake_str = ss.str();
+      header_write_size_ = handshake_str.size();
+      handshake_buf_ = new IOBuffer(handshake_str.size());
+      char* p = handshake_buf_->data();
+      std::memcpy(p, handshake_str.c_str(), header_write_size_);
+
+      next_state_ = STATE_HEADER_WRITE_COMPLETE;
+      buffer_ = buffer_.substr(header_end + 4);
+
+      return transport_->Write(handshake_buf_.get(), header_write_size_,
+                               io_callback_, traffic_annotation_);
+    }
   } else {
     // postprobe endpoint handling
     is_http_1_0 = true;
-  }
-
-  size_t second_line = first_line_end + 2;
-  HttpRequestHeaders headers;
-  std::string headers_str;
-  if (second_line < header_end) {
-    headers_str = buffer_.substr(second_line, header_end - second_line);
-    headers.AddHeadersFromString(headers_str);
   }
 
   if (is_http_1_0) {
@@ -396,15 +469,7 @@ int HttpProxyServerSocket::DoHeaderReadComplete(int result) {
 
     request_endpoint_.set_host(host);
     request_endpoint_.set_port(port);
-  }
 
-  std::optional<PaddingType> padding_type = ParsePaddingHeaders(headers);
-  if (!padding_type.has_value()) {
-    return ERR_INVALID_ARGUMENT;
-  }
-  padding_detector_delegate_->SetClientPaddingType(*padding_type);
-
-  if (is_http_1_0) {
     // Regenerates http header to make sure don't leak them to end servers
     HttpRequestHeaders sanitized_headers = headers;
     sanitized_headers.RemoveHeader(HttpRequestHeaders::kProxyConnection);

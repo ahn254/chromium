@@ -6,6 +6,10 @@
 
 #include <unordered_set>
 
+#include "base/base64.h"
+#include "base/base64url.h"
+#include "base/rand_util.h"
+#include "crypto/random.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -19,6 +23,10 @@
 
 namespace net {
 
+namespace WebSocket {
+const char kTunWebsocketPath[] = "X-Websocket-Path";
+}
+
 void ProxyClientSocket::SetStreamPriority(RequestPriority priority) {}
 
 // static
@@ -28,20 +36,41 @@ void ProxyClientSocket::BuildTunnelRequest(
     const std::string& user_agent,
     std::string* request_line,
     HttpRequestHeaders* request_headers) {
-  // RFC 7230 Section 5.4 says a client MUST send a Host header field in all
-  // HTTP/1.1 request messages, and Host SHOULD be the first header field
-  // following the request-line.  Add "Proxy-Connection: keep-alive" for compat
-  // with HTTP/1.0 proxies such as Squid (required for NTLM authentication).
   std::string host_and_port = endpoint.ToString();
-  *request_line =
-      base::StringPrintf("CONNECT %s HTTP/1.1\r\n", host_and_port.c_str());
-  request_headers->SetHeader(HttpRequestHeaders::kHost, host_and_port);
-  request_headers->SetHeader(HttpRequestHeaders::kProxyConnection,
-                             "keep-alive");
+  std::string accept_hash;
+  std::string websocket_path;
+  base::Base64Encode(base::RandBytesAsString(16), &accept_hash);
+  base::Base64UrlEncode(host_and_port, base::Base64UrlEncodePolicy::INCLUDE_PADDING,
+          &host_and_port);
+
+  request_headers->MergeFrom(extra_headers);
+
+  if (extra_headers.GetHeader(WebSocket::kTunWebsocketPath, &websocket_path)) {
+    std::ostringstream ss;
+    ss << "Upgrade: websocket\r\n";
+    ss << "Connection: Upgrade\r\n";
+    ss << "Sec-WebSocket-Key: " << accept_hash << "\r\n";
+    ss << "X-Connect-Host: " << host_and_port << "\r\n";
+    std::string response_headers = ss.str();
+    request_headers->AddHeadersFromString(response_headers);
+    request_headers->RemoveHeader("X-Websocket-Path");
+
+    *request_line =
+        base::StringPrintf("GET %s HTTP/1.1\r\n", websocket_path.c_str());
+  } else {
+    // RFC 7230 Section 5.4 says a client MUST send a Host header
+    // field in all HTTP/1.1 request messages, and Host SHOULD be the
+    // first header field following the request-line.  Add
+    // "Proxy-Connection: keep-alive" for compat with HTTP/1.0 proxies
+    // such as Squid (required for NTLM authentication).
+    *request_line =
+        base::StringPrintf("CONNECT %s HTTP/1.1\r\n", host_and_port.c_str());
+    request_headers->RemoveHeader(HttpRequestHeaders::kHost);
+  }
+
   if (!user_agent.empty())
     request_headers->SetHeader(HttpRequestHeaders::kUserAgent, user_agent);
 
-  request_headers->MergeFrom(extra_headers);
 }
 
 // static
