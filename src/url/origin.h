@@ -20,13 +20,8 @@
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
-#include "build/robolectric_buildflags.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/scheme_host_port.h"
-
-#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_ROBOLECTRIC)
-#include "base/android/jni_android.h"
-#endif
 
 class GURL;
 
@@ -306,19 +301,6 @@ class COMPONENT_EXPORT(URL) Origin {
   // and precursor information.
   std::string GetDebugString(bool include_nonce = true) const;
 
-#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_ROBOLECTRIC)
-  base::android::ScopedJavaLocalRef<jobject> ToJavaObject() const;
-  static Origin FromJavaObject(
-      const base::android::JavaRef<jobject>& java_origin);
-  static jlong CreateNative(JNIEnv* env,
-                            const base::android::JavaRef<jstring>& java_scheme,
-                            const base::android::JavaRef<jstring>& java_host,
-                            uint16_t port,
-                            bool is_opaque,
-                            uint64_t tokenHighBits,
-                            uint64_t tokenLowBits);
-#endif  // BUILDFLAG(IS_ANDROID)
-
   void WriteIntoTrace(perfetto::TracedValue context) const;
 
   // Estimates dynamic memory usage.
@@ -326,13 +308,6 @@ class COMPONENT_EXPORT(URL) Origin {
   size_t EstimateMemoryUsage() const;
 
  private:
-#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_ROBOLECTRIC)
-  friend Origin CreateOpaqueOriginForAndroid(
-      const std::string& scheme,
-      const std::string& host,
-      uint16_t port,
-      const base::UnguessableToken& nonce_token);
-#endif
   friend class blink::SecurityOrigin;
   friend class blink::SecurityOriginTest;
   friend class blink::StorageKey;
