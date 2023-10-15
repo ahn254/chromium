@@ -362,6 +362,8 @@ int HttpProxyClientSocket::DoSendRequest() {
                                           &user_agent)) {
       user_agent.clear();
     }
+    request_headers_.SetHeader(HttpRequestHeaders::kHost,
+                               proxy_server_.host_port_pair().ToString());
     BuildTunnelRequest(endpoint_, extra_headers, user_agent, &request_line_,
                        &request_headers_);
 
@@ -413,6 +415,10 @@ int HttpProxyClientSocket::DoReadHeadersComplete(int result) {
   }
 
   switch (response_.headers->response_code()) {
+    case 101:
+      next_state_ = STATE_DONE;
+      return OK;
+
     case 200:  // OK
       if (http_stream_parser_->IsMoreDataBuffered())
         // The proxy sent extraneous data after the headers.

@@ -115,6 +115,7 @@ struct Params {
   int concurrency;
   net::HttpRequestHeaders extra_headers;
   std::string proxy_url;
+  std::string proxy_url_path;
   std::u16string proxy_user;
   std::u16string proxy_pass;
   std::string host_resolver_rules;
@@ -396,6 +397,7 @@ bool ParseCommandLine(const CommandLine& cmdline, Params* params) {
   GURL url_no_auth = url.ReplaceComponents(remove_auth);
   if (!cmdline.proxy.empty()) {
     params->proxy_url = url_no_auth.GetWithEmptyPath().spec();
+    params->proxy_url_path = url.path();
     if (params->proxy_url.empty()) {
       std::cerr << "Invalid proxy URL" << std::endl;
       return false;
@@ -516,7 +518,7 @@ std::unique_ptr<URLRequestContext> BuildCertURLRequestContext(NetLog* net_log) {
 
 // Builds a URLRequestContext assuming there's only a single loop.
 std::unique_ptr<URLRequestContext> BuildURLRequestContext(
-    const Params& params,
+    Params& params,
     scoped_refptr<CertNetFetcherURLRequest> cert_net_fetcher,
     NetLog* net_log) {
   URLRequestContextBuilder builder;
@@ -525,8 +527,23 @@ std::unique_ptr<URLRequestContext> BuildURLRequestContext(
   builder.set_net_log(net_log);
 
   ProxyConfig proxy_config;
-  proxy_config.proxy_rules().ParseFromString(params.proxy_url);
-  LOG(INFO) << "Proxying via " << params.proxy_url;
+  HttpNetworkSessionParams session_params;
+  std::string proxy_url = params.proxy_url;
+  if (GURL(proxy_url)
+          .SchemeIs("wss")) {
+    proxy_url.replace(0, 3, "https");
+    LOG(INFO) << "Proxying via faux-websocket " << proxy_url << ", url-path is " << params.proxy_url_path;
+    params.extra_headers.SetHeader("X-Websocket-Path",
+                            params.proxy_url_path);
+
+    // We don't support websocket proxy with HTTP/2,
+    // mainly because it seems CDNs don't support that anyways, and also it makes things easier.
+    session_params.enable_http2 = false;
+  } else {
+    LOG(INFO) << "Proxying via " << proxy_url;
+  }
+  proxy_config.proxy_rules().ParseFromString(proxy_url);
+  builder.set_http_network_session_params(session_params);
   auto proxy_service =
       ConfiguredProxyResolutionService::CreateWithoutProxyResolver(
           std::make_unique<ProxyConfigServiceFixed>(
@@ -552,7 +569,6 @@ std::unique_ptr<URLRequestContext> BuildURLRequestContext(
       !params.proxy_pass.empty()) {
     auto* session = context->http_transaction_factory()->GetSession();
     auto* auth_cache = session->http_auth_cache();
-    std::string proxy_url = params.proxy_url;
     GURL proxy_gurl(proxy_url);
     if (proxy_url.compare(0, 7, "quic://") == 0) {
       proxy_url.replace(0, 4, "https");
