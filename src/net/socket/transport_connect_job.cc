@@ -373,33 +373,33 @@ int TransportConnectJob::DoTransportConnect() {
     }
   }
 
-  if (!ipv4_addresses.empty()) {
-    ipv4_job_ = std::make_unique<TransportConnectSubJob>(
-        std::move(ipv4_addresses), this, SUB_JOB_IPV4);
-  }
-
   if (!ipv6_addresses.empty()) {
     ipv6_job_ = std::make_unique<TransportConnectSubJob>(
         std::move(ipv6_addresses), this, SUB_JOB_IPV6);
-    int result = ipv6_job_->Start();
+  }
+
+  if (!ipv4_addresses.empty()) {
+    ipv4_job_ = std::make_unique<TransportConnectSubJob>(
+        std::move(ipv4_addresses), this, SUB_JOB_IPV4);
+    int result = ipv4_job_->Start();
     if (result != ERR_IO_PENDING)
-      return HandleSubJobComplete(result, ipv6_job_.get());
-    if (ipv4_job_) {
+      return HandleSubJobComplete(result, ipv4_job_.get());
+    if (ipv6_job_) {
       // This use of base::Unretained is safe because |fallback_timer_| is
       // owned by this object.
       fallback_timer_.Start(
-          FROM_HERE, kIPv6FallbackTime,
-          base::BindOnce(&TransportConnectJob::StartIPv4JobAsync,
+          FROM_HERE, kIPv4FallbackTime,
+          base::BindOnce(&TransportConnectJob::StartIPv6JobAsync,
                          base::Unretained(this)));
     }
     return ERR_IO_PENDING;
   }
 
-  DCHECK(!ipv6_job_);
-  DCHECK(ipv4_job_);
-  int result = ipv4_job_->Start();
+  DCHECK(!ipv4_job_);
+  DCHECK(ipv6_job_);
+  int result = ipv6_job_->Start();
   if (result != ERR_IO_PENDING)
-    return HandleSubJobComplete(result, ipv4_job_.get());
+    return HandleSubJobComplete(result, ipv6_job_.get());
   return ERR_IO_PENDING;
 }
 
@@ -454,18 +454,19 @@ int TransportConnectJob::HandleSubJobComplete(int result,
   switch (job->type()) {
     case SUB_JOB_IPV4:
       ipv4_job_.reset();
+
+      // Start the other job, rather than wait for the fallback timer.
+      if (ipv6_job_ && !ipv6_job_->started()) {
+        fallback_timer_.Stop();
+        result = ipv6_job_->Start();
+        if (result != ERR_IO_PENDING) {
+          return HandleSubJobComplete(result, ipv6_job_.get());
+        }
+      }
       break;
 
     case SUB_JOB_IPV6:
       ipv6_job_.reset();
-      // Start the other job, rather than wait for the fallback timer.
-      if (ipv4_job_ && !ipv4_job_->started()) {
-        fallback_timer_.Stop();
-        result = ipv4_job_->Start();
-        if (result != ERR_IO_PENDING) {
-          return HandleSubJobComplete(result, ipv4_job_.get());
-        }
-      }
       break;
   }
 
@@ -485,12 +486,12 @@ void TransportConnectJob::OnSubJobComplete(int result,
   }
 }
 
-void TransportConnectJob::StartIPv4JobAsync() {
-  DCHECK(ipv4_job_);
-  net_log().AddEvent(NetLogEventType::TRANSPORT_CONNECT_JOB_IPV6_FALLBACK);
-  int result = ipv4_job_->Start();
+void TransportConnectJob::StartIPv6JobAsync() {
+  DCHECK(ipv6_job_);
+  net_log().AddEvent(NetLogEventType::TRANSPORT_CONNECT_JOB_IPV4_FALLBACK);
+  int result = ipv6_job_->Start();
   if (result != ERR_IO_PENDING)
-    OnSubJobComplete(result, ipv4_job_.get());
+    OnSubJobComplete(result, ipv6_job_.get());
 }
 
 int TransportConnectJob::ConnectInternal() {
