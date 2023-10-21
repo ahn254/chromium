@@ -27,6 +27,9 @@ jobs:
             src/gn/
             src/qemu-user-static*.deb
           key: toolchains-posix-${{ hashFiles('CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
+      - run: pwd
+      - run: ls
+      - run: ls -l ../
       - name: Cache PGO (Linux, OpenWrt)
         uses: actions/cache@v3
         with:
