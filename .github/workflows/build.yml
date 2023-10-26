@@ -291,8 +291,8 @@ jobs:
           mkdir ${{ env.BUNDLE }}
           cp out/Release/naive config.json ../LICENSE ../USAGE.txt ${{ env.BUNDLE }}
           7z a ${{ env.BUNDLE }}.zip ./${{ env.BUNDLE }}/*
-          openssl sha256 out/Release/naive.exe >sha256sum.txt
-          echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
+          # openssl sha256 out/Release/naive.exe >sha256sum.txt
+          # echo "SHA256SUM=$(cut -d' ' -f2 sha256sum.txt)" >>$GITHUB_ENV
       - uses: actions/upload-artifact@v3
         with:
           name: ${{ env.BUNDLE }}.zip naive executable sha256 ${{ env.SHA256SUM }}
